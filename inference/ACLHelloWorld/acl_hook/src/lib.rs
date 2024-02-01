@@ -1,11 +1,23 @@
+use libc::times;
 use libc::{c_char, c_int, c_uint, c_void};
 use std::ffi::CString;
 use std::ffi::CStr;
+use std::collections::BTreeMap;
+use chrono::Utc;
 //type aclrtContext = u64;
 //type aclrtStream = u64;
 
 pub mod acl_struct;
 use crate::acl_struct::*;
+
+pub static mut HANDLE_MAP: BTreeMap<u64, u64> = BTreeMap::new();
+
+pub fn get_id() -> u64 {
+    let dt = Utc::now();
+    let timestamp: u64 = dt.timestamp() as u64;
+    println!("generated timestamp {}", timestamp);
+    return timestamp;
+}
 
 pub fn copy_str(orig_str: *const c_char) -> Vec<u8>{
     let c_str: &CStr = unsafe { CStr::from_ptr(orig_str)}; 
@@ -117,7 +129,9 @@ pub extern "C" fn aclmdlCreateDesc() -> u64 {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
     let ret = orig_func();
-    return ret;
+    let ret_handle = get_id();
+    unsafe { HANDLE_MAP.insert(ret_handle, ret); }
+    return ret_handle;
 }
 
 
@@ -135,7 +149,8 @@ pub extern "C" fn aclmdlGetDesc(modelDesc: u64 /* aclmdlDesc* */, modelId: c_uin
     let orig_func: extern "C" fn(u64, c_uint) -> c_int = unsafe {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
-    let ret = orig_func(modelDesc, modelId);
+    let real_desc = unsafe { HANDLE_MAP.get(&modelDesc).unwrap().clone() };
+    let ret = orig_func(real_desc, modelId);
     return ret;
 }
 
@@ -149,7 +164,8 @@ pub extern "C" fn aclmdlGetInputSizeByIndex(modelDesc: u64 /* aclmdlDesc* */, in
     let orig_func: extern "C" fn(u64, usize) -> usize = unsafe {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
-    let ret = orig_func(modelDesc, index);
+    let real_desc = unsafe { HANDLE_MAP.get(&modelDesc).unwrap().clone() };
+    let ret = orig_func(real_desc, index);
     return ret;
 }
 
@@ -238,8 +254,8 @@ pub extern "C" fn aclmdlGetNumOutputs(modelDesc: u64 /* aclmdlDesc* */) -> usize
     let orig_func: extern "C" fn(u64) -> usize = unsafe {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
-
-    let ret = orig_func(modelDesc); // btree map here
+    let real_desc = unsafe { HANDLE_MAP.get(&modelDesc).unwrap().clone() };
+    let ret = orig_func(real_desc); // btree map here
     return ret;
 }
 
@@ -254,7 +270,8 @@ pub extern "C" fn aclmdlGetOutputSizeByIndex(modelDesc: u64 /* aclmdlDesc* */, i
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
 
-    let ret = orig_func(modelDesc, index); // btree map here
+    let real_desc = unsafe { HANDLE_MAP.get(&modelDesc).unwrap().clone() };
+    let ret = orig_func(real_desc, index); // btree map here
     return ret;
 }
 
@@ -401,5 +418,21 @@ pub extern "C" fn aclmdlGetDatasetNumBuffers(dataset: u64) -> usize {
     };
 
     let ret = orig_func(dataset);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlDestroyDesc(modelDesc: u64) -> usize {
+    println!("Hijacked aclmdlDestroyDesc()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlDestroyDesc").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let real_desc = unsafe { HANDLE_MAP.get(&modelDesc).unwrap().clone() };
+    let ret = orig_func(real_desc);
     return ret;
 }
