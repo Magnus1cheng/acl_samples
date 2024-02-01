@@ -1,4 +1,4 @@
-use libc::{c_char, c_int, c_uint};
+use libc::{c_char, c_int, c_uint, c_void};
 use std::ffi::CString;
 use std::ffi::CStr;
 //type aclrtContext = u64;
@@ -85,10 +85,6 @@ pub extern "C" fn aclrtCreateStream(stream: aclrtStream) -> c_int {
 pub extern "C" fn aclmdlLoadFromFile(modelPath: *const c_char, modelId: *mut c_uint) -> c_int {
     println!("Hijacked aclmdlLoadFromFile()");
 
-    // let mut mem : Vec<u8> = Vec::with_capacity(1024);
-    // mem.resize(1024, 0);
-    // let addr = &mem[0] as * const_ u8 as u64;
-
     let lib = CString::new("libascendcl.so").unwrap();
     let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
     let func_name = CString::new("aclmdlLoadFromFile").unwrap();
@@ -110,30 +106,28 @@ pub extern "C" fn aclmdlLoadFromFile(modelPath: *const c_char, modelId: *mut c_u
 }
 
 #[no_mangle]
-pub extern "C" fn aclmdlCreateDesc() -> *mut aclmdlDesc {
+pub extern "C" fn aclmdlCreateDesc() -> u64 {
     println!("Hijacked aclmdlCreateDesc()");
 
-    // let mut mem : Vec<u8> = Vec::with_capacity(1024);
-    // mem.resize(1024, 0);
-    // let addr = &mem[0] as * const_ u8 as u64;
 
     let lib = CString::new("libascendcl.so").unwrap();
     let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
     let func_name = CString::new("aclmdlCreateDesc").unwrap();
-    let orig_func: extern "C" fn() -> *mut aclmdlDesc = unsafe {
+    let orig_func: extern "C" fn() -> u64 = unsafe {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
     let ret = orig_func();
     return ret;
 }
 
-#[no_mangle]
-pub extern "C" fn aclmdlGetDesc(modelDesc: u64, modelId: c_uint) -> c_int {
-    println!("Hijacked aclmdlGetDesc()");
 
     // let mut mem : Vec<u8> = Vec::with_capacity(1024);
     // mem.resize(1024, 0);
     // let addr = &mem[0] as * const_ u8 as u64;
+
+#[no_mangle]
+pub extern "C" fn aclmdlGetDesc(modelDesc: u64 /* aclmdlDesc* */, modelId: c_uint) -> c_int {
+    println!("Hijacked aclmdlGetDesc()");
 
     let lib = CString::new("libascendcl.so").unwrap();
     let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
@@ -142,5 +136,270 @@ pub extern "C" fn aclmdlGetDesc(modelDesc: u64, modelId: c_uint) -> c_int {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
     let ret = orig_func(modelDesc, modelId);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlGetInputSizeByIndex(modelDesc: u64 /* aclmdlDesc* */, index: usize) -> usize {
+    println!("Hijacked aclmdlGetInputSizeByIndex()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlGetInputSizeByIndex").unwrap();
+    let orig_func: extern "C" fn(u64, usize) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let ret = orig_func(modelDesc, index);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclrtMalloc(devPtr: *mut *mut c_void /* aclmdlDesc* */, size: usize, policy: aclrtMemMallocPolicy) -> c_int {
+    println!("Hijacked aclrtMalloc()");
+
+    // let mut mem : Vec<u8> = Vec::with_capacity(1024);
+    // mem.resize(1024, 0);
+    // let addr = &mem[0] as * const_ u8 as u64;
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclrtMalloc").unwrap();
+    let orig_func: extern "C" fn(*mut *mut c_void, usize, aclrtMemMallocPolicy) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let mut addr_holder = 0 ;
+    let mut addr_holder_ptr: u64 = &mut addr_holder as *mut _ as u64;
+    //unsafe{ println!("addr 1 is {:x}", addr_holder_ptr)};
+    let ret = orig_func(&mut addr_holder_ptr as *mut _ as  *mut *mut c_void, size, policy);
+    unsafe { (*(devPtr as *mut u64)) = addr_holder_ptr} ;
+    //unsafe{ println!("addr is {:x}", addr_holder_ptr)};
+
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlCreateDataset() -> u64 {
+    println!("Hijacked aclmdlCreateDataset()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlCreateDataset").unwrap();
+    let orig_func: extern "C" fn() -> u64 = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(); // btree map here
+
+    return ret;
+}
+
+
+#[no_mangle]
+pub extern "C" fn aclCreateDataBuffer(data: *mut c_void /* aclmdlDesc* */, size: usize) -> u64 {
+    println!("Hijacked aclCreateDataBuffer()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclCreateDataBuffer").unwrap();
+    let orig_func: extern "C" fn(*mut c_void, usize) -> u64 = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(data, size); // btree map here
+
+    return ret;
+}
+
+
+#[no_mangle]
+pub extern "C" fn aclmdlAddDatasetBuffer(dataset: u64 /* aclmdlDataset* */, dataBuffer: u64) -> c_int {
+    println!("Hijacked aclmdlAddDatasetBuffer()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlAddDatasetBuffer").unwrap();
+    let orig_func: extern "C" fn(u64, u64) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(dataset, dataBuffer); // btree map here
+
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlGetNumOutputs(modelDesc: u64 /* aclmdlDesc* */) -> usize {
+    println!("Hijacked aclmdlGetNumOutputs()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlGetNumOutputs").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(modelDesc); // btree map here
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlGetOutputSizeByIndex(modelDesc: u64 /* aclmdlDesc* */, index: usize) -> usize {
+    println!("Hijacked aclmdlGetOutputSizeByIndex()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlGetOutputSizeByIndex").unwrap();
+    let orig_func: extern "C" fn(u64, usize) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(modelDesc, index); // btree map here
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclrtMemcpy(dst: *mut c_void, destMax: usize, src: *const c_void, count: usize, kind: aclrtMemcpyKind) -> c_int {
+    println!("Hijacked aclrtMemcpy()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclrtMemcpy").unwrap();
+    let orig_func: extern "C" fn(*mut c_void, usize, *const c_void, usize, aclrtMemcpyKind) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let mut ret: c_int = 500000;
+    // if destMax < count, maybe return error? no need to do copy
+    match kind {
+        aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_HOST => {
+            unsafe { std::ptr::copy_nonoverlapping(src as * const u8, dst as * mut u8, count); }
+            ret = 0;
+        }
+        aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE => {
+            let mut mem : Vec<u8> = Vec::with_capacity(count);
+            mem.resize(count, 0);
+            let kernel_addr = &mut mem[0] as * mut _ as u64;
+            unsafe { core::intrinsics::copy_nonoverlapping(src, kernel_addr as * mut c_void, count); }
+            ret = orig_func(dst, destMax, kernel_addr as *const c_void, count, kind);
+        }
+        aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST => {
+            let mut mem : Vec<u8> = Vec::with_capacity(count);
+            mem.resize(count, 0);
+            let kernel_addr = &mut mem[0] as * mut _ as u64;
+            ret = orig_func(kernel_addr as * mut _, count, src, count, kind);
+            unsafe { core::intrinsics::copy_nonoverlapping(kernel_addr as *const _, dst, count); }
+        }
+        aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_DEVICE => {
+            ret = orig_func(dst, destMax, src, count, kind);
+        }
+    }
+    //let ret = orig_func(modelDesc, index); // btree map here
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlExecute(modelId: c_uint, input: u64, output: u64) -> c_int {
+    println!("Hijacked aclmdlExecute()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlExecute").unwrap();
+    let orig_func: extern "C" fn(c_uint, u64, u64) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let ret = orig_func(modelId, input, output);
+   
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlGetDatasetBuffer(dataset: u64, index: usize) -> u64 {
+    println!("Hijacked aclmdlGetDatasetBuffer()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlGetDatasetBuffer").unwrap();
+    let orig_func: extern "C" fn(u64, usize) -> u64 = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let ret = orig_func(dataset, index);
+   
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclGetDataBufferAddr(dataBuffer: u64) -> u64 {
+    println!("Hijacked aclGetDataBufferAddr()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetDataBufferAddr").unwrap();
+    let orig_func: extern "C" fn(u64) -> u64 = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let ret = orig_func(dataBuffer);
+   
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclGetDataBufferSizeV2(dataBuffer: u64 /*const aclDataBuffer * */) -> usize {
+    println!("Hijacked aclGetDataBufferSizeV2()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetDataBufferSizeV2").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let ret = orig_func(dataBuffer);
+   
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclrtMallocHost(hostPtr: *mut *mut c_void, size: usize) -> c_int {
+    println!("Hijacked aclrtMallocHost()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclrtMallocHost").unwrap();
+    let orig_func: extern "C" fn(*mut *mut c_void, usize) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    // todo!();
+    let ret = orig_func(hostPtr, size);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclrtFreeHost(hostPtr: *const c_void) -> c_int {
+    println!("Hijacked aclrtFreeHost()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclrtFreeHost").unwrap();
+    let orig_func: extern "C" fn(*const c_void) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    // todo!();
+    let ret = orig_func(hostPtr);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclmdlGetDatasetNumBuffers(dataset: u64) -> usize {
+    println!("Hijacked aclmdlGetDatasetNumBuffers()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclmdlGetDatasetNumBuffers").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(dataset);
     return ret;
 }
