@@ -1,4 +1,4 @@
-use libc::times;
+use libc::{int32_t, times};
 use libc::{c_char, c_int, c_uint, c_void};
 use std::ffi::CString;
 use std::ffi::CStr;
@@ -436,3 +436,168 @@ pub extern "C" fn aclmdlDestroyDesc(modelDesc: u64) -> usize {
     let ret = orig_func(real_desc);
     return ret;
 }
+
+#[no_mangle]
+pub extern "C" fn aclrtGetRunMode(runMode: *mut aclrtRunMode) -> c_int {
+    println!("Hijacked aclmdlDestroyDesc()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclrtGetRunMode").unwrap();
+    let orig_func: extern "C" fn(*mut aclrtRunMode) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+    let mut aclrtRunMode = aclrtRunMode::ACL_HOST;
+    let ret = orig_func(&mut aclrtRunMode as *mut aclrtRunMode);
+    println!("run mode is {:?}", aclrtRunMode);
+    unsafe { *runMode = aclrtRunMode} ;
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclopSetModelDir(path: *const c_char) -> c_int {
+    let c_str: &CStr = unsafe { CStr::from_ptr(path)};
+    println!("Hijacked aclopSetModelDir({})", c_str.to_str().unwrap());
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclopSetModelDir").unwrap();
+    let orig_func: extern "C" fn(*const c_char) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let str_vec: Vec<u8> = copy_str(path);
+    //todo!();
+    // copy Vector<u8> from user mode to kernel mode.
+    // maybe check str_vec length and decide if pass null or actual string.
+    //CString::new("").unwrap().as_ptr()
+    let string = unsafe{ CString::from_vec_unchecked(str_vec.clone())};
+    let ret = orig_func(string.as_ptr());
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclopCreateAttr() -> u64 {
+    println!("Hijacked aclmdlDestroyDesc()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclopCreateAttr").unwrap();
+    let orig_func: extern "C" fn() -> u64 = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func();
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclCreateTensorDesc(dataType: aclDataType, numDims: i32, dims: *const i64, format: aclFormat) -> u64 {
+    println!("Hijacked aclCreateTensorDesc()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclCreateTensorDesc").unwrap();
+    let orig_func: extern "C" fn(aclDataType, i32, *const i64, aclFormat) -> u64 = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let dims_total_bytes: usize = (numDims * 8) as usize; // i64 has 8 bytes
+    let mut mem : Vec<u8> = Vec::with_capacity(dims_total_bytes);
+    mem.resize(dims_total_bytes, 0);
+    let addr = &mut mem[0] as *mut _ as u64;
+    unsafe { core::intrinsics::copy_nonoverlapping(dims, addr as *mut i64, numDims as usize); }
+
+    let ret = orig_func(dataType, numDims, addr as *const i64, format);
+    let ret_handle = get_id();
+    unsafe { HANDLE_MAP.insert(ret_handle, ret); }
+    return ret_handle;
+}
+
+#[no_mangle]
+pub extern "C" fn aclGetTensorDescSize(desc: u64) -> usize {
+    println!("Hijacked aclGetTensorDescSize()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetTensorDescSize").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let real_desc = unsafe { HANDLE_MAP.get(&desc).unwrap().clone() };
+    let ret = orig_func(real_desc);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclGetTensorDescNumDims(desc: u64) -> usize {
+    println!("Hijacked aclGetTensorDescNumDims()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetTensorDescNumDims").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let real_desc = unsafe { HANDLE_MAP.get(&desc).unwrap().clone() };
+    let ret = orig_func(real_desc);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclGetTensorDescElementCount(desc: u64) -> usize {
+    println!("Hijacked aclGetTensorDescElementCount()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetTensorDescElementCount").unwrap();
+    let orig_func: extern "C" fn(u64) -> usize = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let real_desc = unsafe { HANDLE_MAP.get(&desc).unwrap().clone() };
+    let ret = orig_func(real_desc);
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclGetTensorDescDimV2(desc: u64, index: usize, dimSize: *mut i64) -> c_int {
+    println!("Hijacked aclGetTensorDescDimV2()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetTensorDescDimV2").unwrap();
+    let orig_func: extern "C" fn(u64, usize, *mut i64) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let real_desc = unsafe { HANDLE_MAP.get(&desc).unwrap().clone() };
+    let mut dim_holder:i64 = 0;
+    let ret = orig_func(real_desc, index, &mut dim_holder as *mut i64);
+    unsafe {*dimSize = dim_holder};
+
+    return ret;
+}
+
+
+#[no_mangle]
+pub extern "C" fn aclGetTensorDescType(desc: u64) -> aclDataType {
+    println!("Hijacked aclGetTensorDescType()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclGetTensorDescType").unwrap();
+    let orig_func: extern "C" fn(u64) -> aclDataType = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let real_desc = unsafe { HANDLE_MAP.get(&desc).unwrap().clone() };
+    let ret = orig_func(real_desc);
+    return ret;
+}
+
+// aclopCreateKernel
+// aclopCompile
+// aclopCompileAndExecute
