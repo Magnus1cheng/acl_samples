@@ -1,22 +1,35 @@
+//Maybe use u64 to indicate all type of pointers to avoid error
+
 use libc::{int32_t, times};
 use libc::{c_char, c_int, c_uint, c_void};
 use std::ffi::CString;
 use std::ffi::CStr;
 use std::collections::BTreeMap;
 use chrono::Utc;
+use std::ptr;
+use spin::Mutex;
 //type aclrtContext = u64;
 //type aclrtStream = u64;
 
 pub mod acl_struct;
 use crate::acl_struct::*;
 
-pub static mut HANDLE_MAP: BTreeMap<u64, u64> = BTreeMap::new();
+  pub static mut HANDLE_MAP: BTreeMap<u64, u64> = BTreeMap::new();
+  pub static mut ID: i32 = 1;
+  pub static M: Mutex<i32> = Mutex::new(0);
+
 
 pub fn get_id() -> u64 {
-    let dt = Utc::now();
-    let timestamp: u64 = dt.timestamp() as u64;
-    println!("generated timestamp {}", timestamp);
-    return timestamp;
+    // let dt = Utc::now();
+    // let timestamp: u64 = dt.timestamp() as u64;
+    M.lock();
+    let mut ret = 0;
+    unsafe {
+      ret = ID;
+      ID = ID+1;
+    }
+    println!("generated return value {}", ret);
+    return ret as u64;
 }
 
 pub fn copy_str(orig_str: *const c_char) -> Vec<u8>{
@@ -29,7 +42,7 @@ pub extern "C" fn aclInit(path: *const c_char) -> c_int {
     let c_str: &CStr = unsafe { CStr::from_ptr(path)};
     println!("Hijacked aclInit({})", c_str.to_str().unwrap());
 
-    let lib = CString::new("libascendcl.so").unwrap();
+    let lib = CString::new("/home/HwHiAiUser/Ascend/ascend-toolkit/latest/lib64/libascendcl.so").unwrap();
     let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
     let func_name = CString::new("aclInit").unwrap();
     let orig_func: extern "C" fn(*const c_char) -> c_int = unsafe {
@@ -43,6 +56,7 @@ pub extern "C" fn aclInit(path: *const c_char) -> c_int {
     //CString::new("").unwrap().as_ptr()
     let string = unsafe{ CString::from_vec_unchecked(str_vec.clone())};
     let ret = orig_func(string.as_ptr());
+    println!("orig func is {:?}", orig_func);
     unsafe {println!("val is {:?}", CString::from_vec_unchecked(str_vec))};
     println!("return val is {}", ret);
     return ret;
@@ -501,16 +515,21 @@ pub extern "C" fn aclCreateTensorDesc(dataType: aclDataType, numDims: i32, dims:
     let orig_func: extern "C" fn(aclDataType, i32, *const i64, aclFormat) -> u64 = unsafe {
         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
     };
-
+    let mut ret: u64 = 0;
+    if numDims != 0 {
     let dims_total_bytes: usize = (numDims * 8) as usize; // i64 has 8 bytes
     let mut mem : Vec<u8> = Vec::with_capacity(dims_total_bytes);
     mem.resize(dims_total_bytes, 0);
     let addr = &mut mem[0] as *mut _ as u64;
     unsafe { core::intrinsics::copy_nonoverlapping(dims, addr as *mut i64, numDims as usize); }
 
-    let ret = orig_func(dataType, numDims, addr as *const i64, format);
+        ret = orig_func(dataType, numDims, addr as *const i64, format);
+    } else {
+        ret = orig_func(dataType, 0, ptr::null(), format);
+    }
     let ret_handle = get_id();
     unsafe { HANDLE_MAP.insert(ret_handle, ret); }
+    println!("add tensor desc {:x} -> {:x}", ret_handle, ret);
     return ret_handle;
 }
 
@@ -597,6 +616,109 @@ pub extern "C" fn aclGetTensorDescType(desc: u64) -> aclDataType {
     let ret = orig_func(real_desc);
     return ret;
 }
+
+
+#[no_mangle]
+pub extern "C" fn aclopCompileAndExecute(opType: u64, numInputs: i32, inputDesc: u64, inputs: u64,
+                                        numOutputs: i32, outputDesc: u64, outputs: u64, attr: u64,
+                                        engineType: i32, compileFlag: i32, opPath:u64 , stream: u64) -> c_int {
+    println!("Hijacked aclopCompileAndExecute()");
+
+    let lib = CString::new("libacl_op_compiler.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclopCompileAndExecute").unwrap();
+    let orig_func: extern "C" fn(u64, i32, u64 , u64, i32, u64, u64, 
+        u64, i32, i32, u64, u64) -> c_int = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    //opType
+    let type_str_vec: Vec<u8> = copy_str(opType as *const c_char);
+    let type_string = unsafe{ CString::from_vec_unchecked(type_str_vec.clone())};
+
+    // const aclTensorDesc *const inputDesc[]
+    let inputDesc_total_bytes: usize = (numInputs * 8) as usize; // u64 has 8 bytes
+    let mut inputDesc_mem : Vec<u8> = Vec::with_capacity(inputDesc_total_bytes);
+    inputDesc_mem.resize(inputDesc_total_bytes, 0);
+    let inputDesc_addr = &mut inputDesc_mem[0] as *mut _ as u64;
+
+    //unsafe{ println!("inputDesc {:x}", *(inputDesc as *const u64)) };
+    for i in 0..numInputs {
+        let real_desc = unsafe { HANDLE_MAP.get(&(*(inputDesc as *const u64).add(i as usize))).unwrap().clone() };
+        unsafe { core::intrinsics::copy_nonoverlapping(&real_desc, (inputDesc_addr as *mut u64).add(i as usize) as *mut u64, 1); }
+    }
+
+    // const aclDataBuffer *const inputs[]
+    let inputs_buffer_ptr_total_bytes: usize = (numInputs * 8) as usize;
+    let mut inputs_buffer_ptr_mem : Vec<u8> = Vec::with_capacity(inputs_buffer_ptr_total_bytes);
+    inputs_buffer_ptr_mem.resize(inputs_buffer_ptr_total_bytes, 0);
+    let inputs_buffer_ptr_addr = &mut inputs_buffer_ptr_mem[0] as *mut _ as u64;
+    unsafe { core::intrinsics::copy_nonoverlapping(inputs as *const u64, inputs_buffer_ptr_addr as *mut u64, numInputs as usize); }
+
+    // const aclTensorDesc *const outputDesc[]
+    let outputDesc_total_bytes: usize = (numOutputs * 8) as usize;
+    let mut outputDesc_mem : Vec<u8> = Vec::with_capacity(outputDesc_total_bytes);
+    outputDesc_mem.resize(outputDesc_total_bytes, 0);
+    let outputDesc_addr = &mut outputDesc_mem[0] as *mut _ as u64;
+    for i in 0..numOutputs {
+        let real_desc = unsafe { HANDLE_MAP.get(&(*(outputDesc as *const u64).add(i as usize))).unwrap().clone() };
+        unsafe { core::intrinsics::copy_nonoverlapping(&real_desc, (outputDesc_addr as *mut u64).add(i as usize) as *mut u64, 1); }
+    }
+
+    //aclDataBuffer *const outputs[],
+    let outputs_buffer_ptr_total_bytes: usize = (numOutputs * 8) as usize;
+    let mut outputs_buffer_ptr_mem : Vec<u8> = Vec::with_capacity(outputs_buffer_ptr_total_bytes);
+    outputs_buffer_ptr_mem.resize(outputs_buffer_ptr_total_bytes, 0);
+    let outputs_buffer_ptr_addr = &mut outputs_buffer_ptr_mem[0] as *mut _ as u64;
+    unsafe { core::intrinsics::copy_nonoverlapping(outputs as *const u64, outputs_buffer_ptr_addr as *mut u64, numOutputs as usize); }
+
+    let mut opPath_ptr:*const c_char= ptr::null();
+    //opPath
+    if !(opPath as *const c_void).is_null() {
+        let opPath_str_vec: Vec<u8> = copy_str(opPath as *const c_char);
+        let opPath_string = unsafe{ CString::from_vec_unchecked(opPath_str_vec.clone())};
+        opPath_ptr = opPath_string.as_ptr();
+    }
+    let ret = orig_func(type_string.as_ptr() as u64, numInputs, inputDesc_addr as u64, inputs_buffer_ptr_addr as u64, numOutputs,
+    outputDesc_addr as u64, outputs_buffer_ptr_addr as u64, attr, engineType, compileFlag, opPath_ptr as u64, stream);
+    
+    return ret;
+}
+
+#[no_mangle]
+pub extern "C" fn aclrtSynchronizeStream(stream: aclrtStream) -> aclDataType {
+    println!("Hijacked aclrtSynchronizeStream()");
+
+    let lib = CString::new("libascendcl.so").unwrap();
+    let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+    let func_name = CString::new("aclrtSynchronizeStream").unwrap();
+    let orig_func: extern "C" fn(u64) -> aclDataType = unsafe {
+        std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+    };
+
+    let ret = orig_func(stream);
+    return ret;
+}
+
+
+// #[no_mangle]
+// pub extern "C" fn aclopCompileAndExecute(opType: u64, numInputs: i32, inputDesc: u64, inputs: u64,
+//                                         numOutputs: i32, outputDesc: u64, outputs: u64, attr: u64,
+//                                         engineType: i32, compileFlag: i32, opPath:u64 , stream: u64) -> c_int {
+//     println!("Hijacked aclopCompileAndExecute()");
+//     let lib = CString::new("/home/HwHiAiUser/Ascend/ascend-toolkit/7.0.RC1/aarch64-linux/lib64/libacl_op_compiler.so").unwrap();
+//     let handle = unsafe { libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY) };    
+//     let func_name = CString::new("aclopCompileAndExecute").unwrap();
+//     let orig_func: extern "C" fn(u64, i32, u64 , u64, i32, u64, u64, 
+//         u64, i32, i32, u64, u64) -> c_int = unsafe {
+//         std::mem::transmute(libc::dlsym(handle, func_name.as_ptr()))
+//     };
+//     println!("orig func {:?}", orig_func);
+//     let ret = orig_func(opType, numInputs, inputDesc, inputs, numOutputs,
+//         outputDesc, outputs, attr, engineType, compileFlag, opPath, stream);
+//     println!(" ret val is {}", ret);
+//     return ret;
+// }
 
 // aclopCreateKernel
 // aclopCompile
